@@ -14,7 +14,7 @@
 <script>
 /*!
 
-JSZip v3.100.1 - A JavaScript class for generating and reading zip files
+JSZip v3.110.1 - A JavaScript class for generating and reading zip files
 <http://stuartk.com/jszip>
 
 (c) 2009-2016 Stuart Knightley <stuart [at] stuartk.com>
@@ -499,7 +499,7 @@ select:focus{border-color:var(--violet)}
   </section>
 </div>
 
-<footer><small>Designed &amp; built by</small><strong><span>Eng. Mahmoud Nasr</span></strong><em class="fq" id="fq"></em><span class="ver">v3.10</span><div class="fstripe"><i></i><i></i><i></i><i></i></div></footer>
+<footer><small>Designed &amp; built by</small><strong><span>Eng. Mahmoud Nasr</span></strong><em class="fq" id="fq"></em><span class="ver">v3.11</span><div class="fstripe"><i></i><i></i><i></i><i></i></div></footer>
 </div>
 <div id="printarea"></div>
 <div class="toast" id="toast" hidden></div>
@@ -726,7 +726,7 @@ async function run(mode,req){
     const c=e&&e.code;
     if(c==="aborted"||c==="cancelled"){}
     else if(c==="bad_key"||c==="no_key"){showErr("Gemini rejected the API key. Create a new one at aistudio.google.com/apikey and save it again.");keyUI.force=true;$("keybox").hidden=false}
-    else if(c==="rate_limited")showErr("Free quota is busy — wait a minute and try again.");
+    else if(c==="rate_limited"||c==="quota_day"||c==="quota_tokens")showErr(QUOTAMSG(c,e.message));
     else if(c==="busy")showErr(BUSYMSG());
     else showErr("Couldn't finish: "+((e&&e.message)||"unknown error")+". Try again, ");
     if(!$("sheet").innerHTML){$("result").hidden=true;$("empty").hidden=false}
@@ -871,7 +871,7 @@ async function makeExtra(k,btn){
     else xs.innerHTML=md(xcur.text.replace(/<<<PAGEBREAK>>>/g,"\n---\n"));
     $("xdl").textContent=e.kind==="ppt"?"Download .pptx":e.kind==="info"?"Download PNG":"Download .docx";
     $("xout").scrollIntoView({behavior:"smooth",block:"nearest"});
-  }catch(err){const c=err&&err.code;showErr(c==="bad_key"?"Gemini rejected the API key.":c==="rate_limited"?"Free quota is busy — wait a minute and try again.":c==="busy"?BUSYMSG():"Couldn't create it: "+((err&&err.message)||"unknown error"))}
+  }catch(err){const c=err&&err.code;showErr(c==="bad_key"?"Gemini rejected the API key.":(c==="rate_limited"||c==="quota_day"||c==="quota_tokens")?QUOTAMSG(c,err.message):c==="busy"?BUSYMSG():"Couldn't create it: "+((err&&err.message)||"unknown error"))}
   finally{clearInterval(tmr);btn.disabled=false;lab.textContent=old}
 }
 $("tools").addEventListener("click",e=>{const b=e.target.closest(".tool");if(b)makeExtra(b.dataset.k,b)});
@@ -1127,6 +1127,10 @@ keyUI();
 let MODELS=null;
 try{const _q=localStorage.getItem("qm");if(_q)$("qm").value=_q}catch(e){}
 $("qm").onchange=()=>{try{localStorage.setItem("qm",$("qm").value)}catch(e){}};
+const QUOTAMSG=(c,m)=>{const ar=isAR();const d=m?(" ["+String(m).split(". ")[0].slice(0,160)+"]"):"";
+  if(c==="quota_day")return (ar?"خلصت حصتك اليومية المجانية من Gemini على المفتاح ده (ده من Google مش من التطبيق). جرّب بكرة، أو اعمل مفتاح جديد من حساب Google تاني من aistudio.google.com/apikey، أو فعّل الفوترة. ":"Your free DAILY Gemini quota for this key is used up (this is Google's limit, not the app). Try again tomorrow, create a new key from another Google account at aistudio.google.com/apikey, or enable billing. ")+d;
+  if(c==="quota_tokens")return (ar?"الملف المرفوع كبير على الحد المجاني في الدقيقة. جرّب ملف أقصر (أو صفحات الدرس المطلوبة بس)، أو استنى دقيقة وحاول تاني. ":"The uploaded material is too large for the free per-minute limit. Try a shorter file (only the needed pages) or wait a minute and retry. ")+d;
+  return (ar?"حد الاستخدام المجاني في الدقيقة اتعدّى. استنى دقيقة واضغط إنشاء تاني. ":"The free per-minute limit was hit. Wait a minute and press Create again. ")+d};
 const BUSYMSG=()=>(isAR()?"سيرفرات Gemini عليها ضغط عالي دلوقتي (ده مش خطأ في التطبيق). جرّبنا كذا موديل ومحاولات. استنى دقيقة أو اتنين واضغط إنشاء تاني.":"Google's Gemini servers are overloaded right now (not an app error). I tried several models and retries. Wait a minute or two and press Create again.");
 async function pickModels(key){
   if(MODELS)return MODELS;
@@ -1140,7 +1144,7 @@ async function pickModels(key){
   return ["gemini-flash-latest","gemini-2.5-flash","gemini-2.0-flash"]}
 async function gem(prompt,{json,signal,onText}={}){
   const key=K.get();if(!key)throw {code:"no_key"};
-  let last;
+  let last;const qs={n:0,day:0,big:0,msg:""};
   for(const m of await pickModels(key)){
     const deep=($("qm")||{}).value==="deep",fl=!deep&&/flash/.test(m)&&!/pro/.test(m);
     let busy=0;
@@ -1166,14 +1170,19 @@ async function gem(prompt,{json,signal,onText}={}){
       if(r.status===400&&noThink&&/think/i.test(msg))continue;
       if(r.status===400&&/API key/i.test(msg))throw {code:"bad_key"};
       if(r.status===403)throw {code:"bad_key"};
-      if(r.status===429||r.status>=500||/high demand|overload|unavailable|try again later/i.test(msg)){
-        last={code:r.status===429?"rate_limited":"busy",message:msg};
+      if(r.status===429){
+        const raw=JSON.stringify(e),day=/PerDay|per day|daily/i.test(raw),big=/TokensPerMinute|input_token|token/i.test(raw)&&!day;
+        qs.n++;if(day)qs.day++;if(big)qs.big++;qs.msg=msg;
+        last={code:day?"quota_day":big?"quota_tokens":"rate_limited",message:msg};break}
+      if(r.status>=500||/high demand|overload|unavailable|try again later/i.test(msg)){
+        last={code:"busy",message:msg};
         if(busy<2){busy++;await new Promise(ok=>{const t=setTimeout(ok,1500*busy);if(signal)signal.addEventListener("abort",()=>{clearTimeout(t);ok()},{once:true})});if(signal&&signal.aborted)throw {code:"aborted"};k--;continue}
         break}
       if(r.status===404){last={code:"model",message:"No Gemini model available for this key (tried "+m+")."};break}
       last={code:"http",message:msg||("Error "+r.status)};break;
     }
   }
+  if(qs.n&&last&&/quota|rate/.test(last.code))throw {code:qs.day===qs.n?"quota_day":qs.big?"quota_tokens":"rate_limited",message:qs.msg,tried:qs.n};
   throw last||{code:"http"};
 }
 const sample=async(p,o={})=>{const t=await gem(p,o);o.onText&&o.onText({text:t});return {text:t}};

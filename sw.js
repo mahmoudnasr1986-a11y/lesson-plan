@@ -1,4 +1,4 @@
-var C="lessonplan-v322",F=["./","index.html","icon-192.png","icon-512.png","apple-touch-icon.png","manifest.webmanifest"];
+var C="lessonplan-v323",F=["./","index.html","icon-192.png","icon-512.png","apple-touch-icon.png","manifest.webmanifest"];
 self.addEventListener("install",function(e){e.waitUntil(caches.open(C).then(function(c){return c.addAll(F);}));self.skipWaiting();});
 self.addEventListener("activate",function(e){e.waitUntil(caches.keys().then(function(k){return Promise.all(k.filter(function(x){return x!==C;}).map(function(x){return caches.delete(x);}));}));self.clients.claim();});
 self.addEventListener("fetch",function(e){var r=e.request,u=new URL(r.url);
